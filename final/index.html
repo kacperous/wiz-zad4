@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8" />
+<title>Aktywność sejsmiczna Ziemi — USGS (live)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root {
+    --bg: #07090f;
+    --bg-2: #0d1220;
+    --panel: rgba(15, 20, 35, 0.85);
+    --border: #1d2640;
+    --text: #e6ecff;
+    --muted: #8a93b3;
+    --accent: #ffd166;
+    --ocean: #0a1628;
+    --land: #1b2742;
+    --land-stroke: #2c3a5c;
+    --grid: #18253f;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: radial-gradient(ellipse at center, #0d1426 0%, var(--bg) 75%);
+    color: var(--text);
+    font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    overflow: hidden;
+  }
+  #app { position: relative; width: 100vw; height: 100vh; }
+  #map { width: 100%; height: 100%; cursor: grab; }
+  #map:active { cursor: grabbing; }
+
+  .panel {
+    position: absolute;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+  }
+  #controls { top: 16px; left: 16px; width: 280px; }
+  #legend   { bottom: 16px; left: 16px; width: 280px; }
+  #status   { top: 16px; right: 16px; width: 280px; }
+  #details  { bottom: 16px; right: 16px; width: 280px; min-height: 80px; }
+
+  h1 { font-size: 14px; margin: 0 0 4px 0; font-weight: 600; letter-spacing: .2px; }
+  h2 { font-size: 11px; margin: 14px 0 6px 0; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; font-weight: 600; }
+  p, label { color: var(--muted); margin: 0 0 6px 0; }
+  .row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+  .row > * { flex: 0 0 auto; }
+  .row .grow { flex: 1 1 auto; }
+
+  select, button, input[type=range] {
+    background: var(--bg-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 6px 10px;
+    font: inherit;
+  }
+  select { width: 100%; }
+  button { cursor: pointer; }
+  button:hover { border-color: var(--accent); color: var(--accent); }
+  input[type=range] { width: 100%; padding: 0; height: 22px; accent-color: var(--accent); }
+
+  .kv { display: flex; justify-content: space-between; gap: 8px; }
+  .kv .k { color: var(--muted); }
+  .kv .v { color: var(--text); font-variant-numeric: tabular-nums; }
+
+  .legend-row { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+  .swatch { width: 18px; height: 18px; border-radius: 50%; flex: 0 0 18px; }
+  .swatch-line { width: 18px; height: 2px; flex: 0 0 18px; }
+  .gradient-bar { height: 8px; border-radius: 4px; margin: 4px 0; }
+
+  /* svg styling */
+  .sphere { fill: var(--ocean); stroke: var(--border); stroke-width: 0.5; }
+  .graticule { fill: none; stroke: var(--grid); stroke-width: 0.5; }
+  .country { fill: var(--land); stroke: var(--land-stroke); stroke-width: 0.4; }
+  .quake { cursor: pointer; }
+  .quake-halo { fill: none; pointer-events: none; }
+  .quake-tsu  { fill: none; stroke: #ff4d6d; stroke-width: 1.2; pointer-events: none; }
+  .quake-wave { fill: none; stroke: var(--accent); stroke-opacity: 0.55; pointer-events: none; }
+
+  #tooltip {
+    position: absolute;
+    pointer-events: none;
+    background: rgba(15, 20, 35, 0.95);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: 12px;
+    max-width: 240px;
+    transform: translate(-50%, -120%);
+    opacity: 0;
+    transition: opacity .12s ease;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+    z-index: 50;
+  }
+  #tooltip.visible { opacity: 1; }
+  #tooltip .t-place { font-weight: 600; margin-bottom: 4px; }
+  #tooltip .t-mag { color: var(--accent); font-weight: 600; }
+
+  .pulse { animation: pulse 1.6s ease-out infinite; transform-origin: center; transform-box: fill-box; }
+  @keyframes pulse {
+    0%   { opacity: 1.0; }
+    70%  { opacity: 0.55; }
+    100% { opacity: 1.0; }
+  }
+  .stroke-dashed { stroke-dasharray: 2 2; }
+  .stroke-solid  { stroke-dasharray: none; }
+
+  a { color: var(--accent); }
+  .footer-note { font-size: 11px; color: var(--muted); margin-top: 8px; }
+  .live-dot {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    background: #4ade80; box-shadow: 0 0 8px #4ade80; margin-right: 6px;
+    animation: live 1.6s ease-in-out infinite;
+  }
+  @keyframes live {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(0.85); }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <svg id="map"></svg>
+
+  <section id="controls" class="panel">
+    <h1>Aktywność sejsmiczna Ziemi</h1>
+    <p>Dane: <a href="https://earthquake.usgs.gov/" target="_blank" rel="noopener">USGS Earthquake Catalog</a> (live)</p>
+
+    <h2>Zakres czasu</h2>
+    <select id="feed">
+      <option value="hour">Ostatnia godzina</option>
+      <option value="day" selected>Ostatnie 24 godziny</option>
+      <option value="week">Ostatnie 7 dni</option>
+      <option value="month">Ostatnie 30 dni</option>
+    </select>
+
+    <h2>Próg magnitudy: <span id="mag-label">≥ 0.0</span></h2>
+    <input id="mag" type="range" min="0" max="7" step="0.1" value="0" />
+
+    <h2>Akcje</h2>
+    <div class="row">
+      <button id="refresh" class="grow">Odśwież teraz</button>
+      <button id="reset">Wyśrodkuj</button>
+    </div>
+    <p class="footer-note">Auto-odświeżanie co 60 s. Przeciągnij mapę aby obrócić, scroll aby przybliżyć.</p>
+  </section>
+
+  <section id="status" class="panel">
+    <div class="kv"><span class="k"><span class="live-dot"></span>Status</span><span class="v" id="status-text">łączenie…</span></div>
+    <div class="kv"><span class="k">Pobrano rekordów</span><span class="v" id="stat-total">—</span></div>
+    <div class="kv"><span class="k">Widoczne (po filtrze)</span><span class="v" id="stat-visible">—</span></div>
+    <div class="kv"><span class="k">Najsilniejsze (M)</span><span class="v" id="stat-max">—</span></div>
+    <div class="kv"><span class="k">Wygenerowano (UTC)</span><span class="v" id="stat-gen">—</span></div>
+    <div class="kv"><span class="k">Następne odświeżenie</span><span class="v" id="stat-next">—</span></div>
+  </section>
+
+  <section id="legend" class="panel">
+    <h2>Mapowanie cech</h2>
+    <div class="legend-row"><span style="width:18px;text-align:center">●</span> rozmiar = <b style="color:var(--text)">magnituda</b></div>
+    <div class="legend-row"><span>głębokość →</span></div>
+    <div id="depth-gradient" class="gradient-bar"></div>
+    <div class="legend-row" style="justify-content:space-between"><span>0 km</span><span>≥ 700 km</span></div>
+    <div class="legend-row"><div class="swatch pulse" style="background:#ffd166;width:10px;height:10px"></div> pulsuje = świeże (&lt;1 h)</div>
+    <div class="legend-row"><div class="swatch" style="background:transparent;border:2px dashed #ffd166;width:14px;height:14px"></div> obrys przerywany = automatic</div>
+    <div class="legend-row"><div class="swatch" style="background:transparent;border:2px solid #ffd166;width:14px;height:14px"></div> obrys ciągły = reviewed</div>
+    <div class="legend-row"><div class="swatch-line" style="background:#ff4d6d"></div> czerwony pierścień = tsunami</div>
+    <div class="legend-row"><span>żółta fala = liczba zgłoszeń odczucia</span></div>
+  </section>
+
+  <section id="details" class="panel">
+    <h2>Szczegóły zdarzenia</h2>
+    <div id="details-body"><p>Najedź lub kliknij znacznik, aby zobaczyć szczegóły.</p></div>
+  </section>
+
+  <div id="tooltip"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+<script src="https://cdn.jsdelivr.net/npm/topojson-client@3"></script>
+<script src="./app.js"></script>
+</body>
+</html>

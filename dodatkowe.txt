@@ -1,0 +1,8 @@
+Proszę umieścić opis procesu wizualizacji podczas prac nad projektem z ćwiczenia 4.
+Uwagi:
+
+konkretne etapy powinny być nazwane (np. na podstawie Ben Fry), by było wiadomo, czego dotyczą,
+każdy etap powinien zawierać krótki opis (2-3 zdaniowy) tego, co w nim było realizowane, łącznie ze szkicami / roboczymi wersjami projektu,
+mile widziane zrzuty ekranu prezentujące kolejne etapy pracy nad projektem, stan bazy danych itp.
+mile widziane istotne fragmenty kodu wykorzystane w projekcie,
+nie ma wymaganej liczby stron - oceniana będzie jakość, a nie ilość.

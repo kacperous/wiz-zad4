@@ -1,0 +1,107 @@
+Ćwiczenie 4
+Wizualizacja i raportowanie danych
+
+
+Jarosław Andrzejczak
+Instytut Informatyki Politechniki Łódzkiej
+Opracowanie wizualizacji dla bazy danych /
+zbioru danych, która będzie aktualizowana przy
+zmianie danych wejściowych
+
+
+
+
+Dynamiczna wizualizacja
+
+Wizualizacja i raportowanie danych      Jarosław Andrzejczak
+- baza danych
+- serwis www
+- parsowanie strony www
+- internetowe API (np. Facebook, Twitter itp.)
+- https://www.wikidata.org
+- developers.google.com/knowledge-graph
+- inne dynamiczne źródło
+
+
+
+Przykładowe źródła danych
+
+Projektowanie Interaktywnej Komunikacji Wizualnej
+Dane muszą:
+- prezentować przynajmniej dwie cechy
+- mieć przynajmniej 10 pól (jednocześnie mile
+widziane jest 10 rekordów)
+
+
+
+
+Wymogi dotyczące danych
+
+Projektowanie Interaktywnej Komunikacji Wizualnej
+Wizualizacja musi posiadać przynajmniej jeden
+element interaktywny taki jak np. przycisk
+powodujący zmianę widoku aplikacji, zmianę
+w czasie (dla danych zmiennych w czasie),
+reorganizację bądź przegrupowanie obiektów na
+scenie itp.
+
+
+
+Przynajmniej jeden element interaktywny
+
+Projektowanie Interaktywnej Komunikacji Wizualnej
+Uwaga: wizualizacja nie może być banalna!
+Forma wizualizacji dowolna (graf, drzewo, mapa,
+formy 2D oraz 3D itp.), z wyłączeniem rozwiązań
+trywialnych (znanych np. z arkuszy Excel), czyli
+wykresów słupkowych, punktowych, liniowych,
+kołowych oraz ich pochodnych
+
+
+
+Uwaga co do wyboru techniki wizualizacji
+
+Projektowanie Interaktywnej Komunikacji Wizualnej
+- dowolna technologia i platforma (aplikacja
+desktopowa, mobilna, strona www itp.)
+- technologia musi umożliwiać podłączenie
+dynamicznego źródła danych oraz
+interaktywność
+
+
+
+
+Technologia
+
+Projektowanie Interaktywnej Komunikacji Wizualnej
+- Processing.org
+-R
+- D3.js
+- Vega
+- Tableau
+- HTML5
+- Python
+- Unity
+- ...
+
+
+Technologia
+
+Projektowanie Interaktywnej Komunikacji Wizualnej
+- wynikowa wizualizacja (wersja
+uruchomieniowa aplikacji w wybranej
+technologii)
+- instrukcja uruchomienia
+- opis najważniejszej informacji, jaką ma
+przekazywać wizualizacja
+
+
+
+Forma oddania
+
+Projektowanie Interaktywnej Komunikacji Wizualnej
+Dziękuję za uwagę
+
+Jarosław Andrzejczak
+Instytut Informatyki Politechniki Łódzkiej
+

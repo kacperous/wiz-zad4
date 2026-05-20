@@ -1,0 +1,40 @@
+{
+  "type": "Feature",
+  "properties": {
+    "mag": 5.9,
+    "place": "8 km E of Wadomari, Japan",
+    "time": 1779245184884,
+    "updated": 1779266147627,
+    "tz": null,
+    "url": "https://earthquake.usgs.gov/earthquakes/eventpage/us6000syw4",
+    "detail": "https://earthquake.usgs.gov/earthquakes/feed/v1.0/detail/us6000syw4.geojson",
+    "felt": 19,
+    "cdi": 3.6,
+    "mmi": 4.728,
+    "alert": "green",
+    "status": "reviewed",
+    "tsunami": 0,
+    "sig": 542,
+    "net": "us",
+    "code": "6000syw4",
+    "ids": ",us6000syw4,",
+    "sources": ",us,",
+    "types": ",dyfi,ground-failure,losspager,moment-tensor,origin,phase-data,shakemap,",
+    "nst": 109,
+    "dmin": 0.69,
+    "rms": 1.28,
+    "gap": 19,
+    "magType": "mww",
+    "type": "earthquake",
+    "title": "M 5.9 - 8 km E of Wadomari, Japan"
+  },
+  "geometry": {
+    "type": "Point",
+    "coordinates": [
+      128.7336,
+      27.392,
+      42
+    ]
+  },
+  "id": "us6000syw4"
+}
