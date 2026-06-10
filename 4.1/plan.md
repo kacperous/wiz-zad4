@@ -28,8 +28,8 @@ Mapa świata 2D w projekcji ortograficznej (D3.js + d3-geo), obracana przeciągn
 - magnituda (`properties.mag`) — rozmiar znacznika
 - głębokość ogniska (`geometry.coordinates[2]`) — kolor (gradient od jasnego dla płytkich do ciemnego dla głębokich)
 - czas wystąpienia (`properties.time`) — przezroczystość i pulsacja (świeże zdarzenia jasne i pulsujące, starsze blakną)
-- istotność (`properties.sig`) — świetlne halo wokół znacznika
-- typ zdarzenia (`properties.type`) — kształt znacznika (kółko / kwadrat / trójkąt dla earthquake / quarry blast / explosion)
+- istotność (`properties.sig`) — wartość liczbowa w panelu szczegółów (USGS wylicza ją głównie z magnitudy i liczby zgłoszeń odczucia, więc nie dublujemy jej osobnym kanałem wizualnym)
+- typ zdarzenia (`properties.type`) — prezentowany tekstowo w tooltipie i panelu szczegółów (wszystkie znaczniki mają ujednolicony kształt koła dla czytelności)
 - alarm tsunami (`properties.tsunami`) — dodatkowy pierścień widoczny tylko przy wartości 1
 - liczba zgłoszeń odczucia (`properties.felt`) — promień animowanej fali rozchodzącej się z epicentrum
 - nazwa miejsca (`properties.place`) — etykieta tekstowa w tooltipie po najechaniu kursorem

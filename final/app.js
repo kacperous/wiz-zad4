@@ -18,10 +18,13 @@ const REFRESH_MS = 60 * 1000;
 // --- skale -----------------------------------------------------------
 // magnituda (-1..8) -> promień znacznika
 const rScale = d3.scaleSqrt().domain([0, 8]).range([1.5, 22]).clamp(true);
-// głębokość (0..700 km) -> kolor
-const depthScale = d3.scaleSequential(d3.interpolateInferno).domain([0, 700]);
-// istotność (sig 0..1000) -> rozmiar halo dodawany do promienia
-const haloScale = d3.scaleLinear().domain([0, 1000]).range([0, 18]).clamp(true);
+// głębokość (0..700 km) -> kolor.
+// Skala dobrana pod ciemne tło: płytkie = ciepłe/jasne (groźniejsze),
+// głębokie = chłodne. Żaden kolor nie jest czarny → wysoki kontrast.
+const depthScale = d3.scaleLinear()
+  .domain([0, 35, 70, 150, 300, 700])
+  .range(["#ff5d5d", "#ff8c42", "#ffd166", "#9be15d", "#34d399", "#38bdf8"])
+  .clamp(true);
 // felt (liczba zgłoszeń) -> promień fali
 const feltScale = d3.scaleSqrt().domain([0, 5000]).range([0, 60]).clamp(true);
 
@@ -32,6 +35,13 @@ const svg = d3.select("#map");
 const tooltip = d3.select("#tooltip");
 
 const defs = svg.append("defs");
+// filtr poświaty (glow) — używany dla świeżych i zaznaczonych zdarzeń
+const glow = defs.append("filter").attr("id", "glow")
+  .attr("x", "-80%").attr("y", "-80%").attr("width", "260%").attr("height", "260%");
+glow.append("feGaussianBlur").attr("stdDeviation", 2.5).attr("result", "blur");
+const feMerge = glow.append("feMerge");
+feMerge.append("feMergeNode").attr("in", "blur");
+feMerge.append("feMergeNode").attr("in", "SourceGraphic");
 // gradient legendy głębokości
 const grad = defs.append("linearGradient")
   .attr("id", "depth-grad").attr("x1", "0%").attr("x2", "100%");
@@ -42,6 +52,33 @@ d3.range(0, 1.0001, 0.05).forEach(t => {
 document.getElementById("depth-gradient").style.background =
   `linear-gradient(to right, ${d3.range(0, 1.01, 0.05).map(t =>
     `${depthScale(t * 700)} ${t * 100}%`).join(", ")})`;
+
+// legenda rozmiaru: osobne kółka obok siebie (rScale dla wybranych magnitud)
+function buildSizeLegend() {
+  const mags = [2, 4, 6];
+  const sel = d3.select("#size-legend");
+  const maxR = rScale(d3.max(mags));
+  const cy = maxR + 3;
+  const labelY = cy + maxR + 13;
+  const H = labelY + 4;
+  const gap = 20;
+  sel.attr("viewBox", `0 0 250 ${H}`).selectAll("*").remove();
+
+  let cx = maxR + 6;
+  mags.forEach((m, i) => {
+    const r = rScale(m);
+    sel.append("circle")
+      .attr("cx", cx).attr("cy", cy).attr("r", r)
+      .attr("fill", "none").attr("stroke", "#aeb8d8").attr("stroke-width", 1.2);
+    sel.append("text")
+      .attr("x", cx).attr("y", labelY).attr("text-anchor", "middle")
+      .attr("fill", "#c7cef0").attr("font-size", 11)
+      .text(`M ${m}`);
+    const next = mags[i + 1];
+    if (next != null) cx += r + gap + rScale(next);
+  });
+}
+buildSizeLegend();
 
 const projection = d3.geoOrthographic()
   .precision(0.5)
@@ -100,7 +137,7 @@ async function loadFeed() {
     state.features = data.features || [];
     state.generated = data.metadata?.generated ?? Date.now();
     state.nextRefreshAt = Date.now() + REFRESH_MS;
-    setStatus("ok");
+    setStatus("OK");
     updateStats();
     redrawQuakes();
   } catch (err) {
@@ -142,7 +179,8 @@ function redrawQuakes() {
   const now = Date.now();
   const filtered = state.features.filter(f => {
     const m = f.properties.mag ?? 0;
-    return m >= state.magMin && f.geometry?.coordinates?.length >= 2;
+    const isQuake = (f.properties.type || "earthquake") === "earthquake";
+    return isQuake && m >= state.magMin && f.geometry?.coordinates?.length >= 2;
   });
 
   document.getElementById("stat-visible").textContent = filtered.length;
@@ -159,12 +197,14 @@ function redrawQuakes() {
 
   // 1. fala "felt" (najpierw, pod znacznikiem)
   enter.append("circle").attr("class", "quake-wave");
-  // 2. halo istotności
-  enter.append("circle").attr("class", "quake-halo");
+  // 2. pierścień świeżości (<1 h) — rozchodząca się fala
+  enter.append("circle").attr("class", "quake-fresh");
   // 3. pierścień tsunami
   enter.append("circle").attr("class", "quake-tsu");
   // 4. główny znacznik (kółko / kwadrat / trójkąt zależnie od type)
   enter.append("path").attr("class", "quake quake-marker");
+  // 5. pierścień zaznaczenia (na samym wierzchu)
+  enter.append("circle").attr("class", "quake-sel");
 
   const all = enter.merge(join);
 
@@ -177,7 +217,6 @@ function redrawQuakes() {
 
     const [x, y] = projection([lon, lat]);
     const mag    = d.properties.mag ?? 0;
-    const sig    = d.properties.sig ?? 0;
     const felt   = d.properties.felt ?? 0;
     const tsu    = d.properties.tsunami === 1;
     const type   = d.properties.type || "earthquake";
@@ -189,7 +228,6 @@ function redrawQuakes() {
       .range([1, 0.18]).clamp(true)(ageH);
 
     const r = rScale(mag);
-    const haloR = r + haloScale(sig);
     const waveR = r + feltScale(felt);
 
     // fala felt
@@ -199,19 +237,19 @@ function redrawQuakes() {
       .attr("stroke-width", felt > 0 ? 1 : 0)
       .style("display", felt > 0 ? null : "none");
 
-    // halo
-    node.select(".quake-halo")
+    // pierścień świeżości (<1 h) — animowana fala wokół znacznika
+    node.select(".quake-fresh")
       .attr("cx", x).attr("cy", y)
-      .attr("r", haloR)
-      .attr("stroke", depthScale(Math.max(0, depth)))
-      .attr("stroke-width", 1)
-      .attr("stroke-opacity", 0.35);
+      .attr("r", r + 1.5)
+      .style("display", fresh ? null : "none");
 
     // tsunami
     node.select(".quake-tsu")
       .attr("cx", x).attr("cy", y)
       .attr("r", r + 4)
       .style("display", tsu ? null : "none");
+
+    const selected = d.id === state.selectedId;
 
     // główny marker
     const marker = node.select(".quake-marker")
@@ -220,37 +258,39 @@ function redrawQuakes() {
       .attr("fill", depthScale(Math.max(0, depth)))
       .attr("fill-opacity", opacity)
       .attr("stroke", "#ffffff")
-      .attr("stroke-opacity", 0.9)
-      .attr("stroke-width", 1)
+      .attr("stroke-opacity", selected ? 1 : 0.9)
+      .attr("stroke-width", selected ? 1.6 : 1)
+      .attr("filter", fresh ? "url(#glow)" : null)
       .classed("stroke-dashed", stat === "automatic")
       .classed("stroke-solid",  stat !== "automatic")
       .classed("pulse", fresh);
+
+    // pierścień zaznaczenia
+    node.select(".quake-sel")
+      .attr("cx", x).attr("cy", y)
+      .attr("r", r + 6)
+      .style("display", selected ? null : "none");
+
+    if (selected) node.raise();
 
     // interakcja
     marker
       .on("mouseenter", (e) => showTooltip(e, d))
       .on("mousemove",  (e) => moveTooltip(e))
       .on("mouseleave", hideTooltip)
-      .on("click",      () => showDetails(d));
+      .on("click",      () => {
+        state.selectedId = d.id;
+        redrawQuakes();
+        showDetails(d);
+      });
   });
 }
 
 function markerShape(type, r) {
-  // type: earthquake (default), quarry blast, explosion, ice quake, ...
-  switch (type) {
-    case "quarry blast":
-    case "explosion":
-      // kwadrat
-      return `M${-r},${-r} L${r},${-r} L${r},${r} L${-r},${r} Z`;
-    case "ice quake":
-    case "rock burst":
-    case "mining explosion":
-      // trójkąt
-      return `M0,${-r} L${r},${r} L${-r},${r} Z`;
-    default:
-      // kółko via path (żeby nie mieszać <circle> i <path> w jednym slocie)
-      return d3.symbol().type(d3.symbolCircle).size(Math.PI * r * r)();
-  }
+  // Wszystkie zdarzenia rysujemy jako koła. Ujednolicony kształt poprawia
+  // czytelność mapy (bez mieszania kół, kwadratów i trójkątów), a typ
+  // zdarzenia jest pokazany tekstowo w tooltipie i panelu szczegółów.
+  return d3.symbol().type(d3.symbolCircle).size(Math.PI * r * r)();
 }
 
 function ageMax(feed) {
@@ -265,7 +305,7 @@ function showTooltip(event, d) {
   const p = d.properties;
   tooltip.html(`
     <div class="t-place">${escapeHtml(p.place || "—")}</div>
-    <div class="t-mag">M ${fmtMag(p.mag)} · ${type2pl(p.type)}</div>
+    <div class="t-mag">M ${fmtMag(p.mag)}${p.magType ? ` (${escapeHtml(p.magType)})` : ""}</div>
     <div style="color:var(--muted);margin-top:4px">
       głębokość: ${fmtNum(d.geometry.coordinates[2])} km<br/>
       ${new Date(p.time).toLocaleString("pl-PL")}
@@ -282,13 +322,13 @@ function showDetails(d) {
   const p = d.properties;
   const [lon, lat, depth] = d.geometry.coordinates;
   d3.select("#details-body").html(`
-    <div class="kv"><span class="k">Miejsce</span><span class="v" style="text-align:right;max-width:170px">${escapeHtml(p.place || "—")}</span></div>
-    <div class="kv"><span class="k">Magnituda</span><span class="v">${fmtMag(p.mag)} ${escapeHtml(p.magType || "")}</span></div>
+    <div class="kv"><span class="k">Miejsce</span><span class="v wrap" style="max-width:170px">${escapeHtml(p.place || "—")}</span></div>
+    <div class="kv"><span class="k">Magnituda</span><span class="v">M ${fmtMag(p.mag)}${p.magType ? ` <span style="color:var(--muted)">(${escapeHtml(p.magType)})</span>` : ""}</span></div>
     <div class="kv"><span class="k">Głębokość</span><span class="v">${fmtNum(depth)} km</span></div>
-    <div class="kv"><span class="k">Współrzędne</span><span class="v">${fmtNum(lat)}, ${fmtNum(lon)}</span></div>
-    <div class="kv"><span class="k">Czas (UTC)</span><span class="v">${new Date(p.time).toISOString().replace("T", " ").slice(0, 19)}</span></div>
-    <div class="kv"><span class="k">Istotność</span><span class="v">${p.sig ?? "—"}</span></div>
-    <div class="kv"><span class="k">Odczute przez</span><span class="v">${p.felt ?? "—"}</span></div>
+    <div class="kv"><span class="k">Współrzędne</span><span class="v">${fmtNum(lat)}°, ${fmtNum(lon)}°</span></div>
+    <div class="kv"><span class="k">Czas (UTC)</span><span class="v time">${new Date(p.time).toISOString().replace("T", " ").slice(0, 19)}</span></div>
+    <div class="kv"><span class="k">Istotność (sig)</span><span class="v">${p.sig ?? "—"}</span></div>
+    <div class="kv"><span class="k">Odczute przez</span><span class="v">${p.felt != null ? p.felt + " osób" : "—"}</span></div>
     <div class="kv"><span class="k">Tsunami</span><span class="v">${p.tsunami ? "tak" : "nie"}</span></div>
     <div class="kv"><span class="k">Status</span><span class="v">${escapeHtml(p.status || "—")}</span></div>
     <div class="kv"><span class="k">Typ</span><span class="v">${escapeHtml(type2pl(p.type))}</span></div>
@@ -301,11 +341,12 @@ function showDetails(d) {
 // =====================================================================
 function setStatus(text) { document.getElementById("status-text").textContent = text; }
 function updateStats() {
-  document.getElementById("stat-total").textContent = state.features.length;
-  const max = d3.max(state.features, f => f.properties.mag) ?? null;
+  const quakes = state.features.filter(f => (f.properties.type || "earthquake") === "earthquake");
+  document.getElementById("stat-total").textContent = quakes.length;
+  const max = d3.max(quakes, f => f.properties.mag) ?? null;
   document.getElementById("stat-max").textContent = max != null ? fmtMag(max) : "—";
   document.getElementById("stat-gen").textContent = state.generated
-    ? new Date(state.generated).toISOString().replace("T", " ").slice(0, 19)
+    ? new Date(state.generated).toISOString().slice(11, 19)
     : "—";
 }
 function tickCountdown() {
@@ -361,8 +402,6 @@ function attachControls() {
     state.magMin = +e.target.value;
     magLabel.textContent = "≥ " + state.magMin.toFixed(1);
     redrawQuakes();
-    document.getElementById("stat-visible").textContent =
-      state.features.filter(f => (f.properties.mag ?? 0) >= state.magMin).length;
   });
   document.getElementById("refresh").addEventListener("click", loadFeed);
   document.getElementById("reset").addEventListener("click", () => {

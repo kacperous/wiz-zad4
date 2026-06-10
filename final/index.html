@@ -15,7 +15,7 @@
     --accent: #ffd166;
     --ocean: #0a1628;
     --land: #1b2742;
-    --land-stroke: #2c3a5c;
+    --land-stroke: #4a5e8c;
     --grid: #18253f;
   }
   * { box-sizing: border-box; }
@@ -65,9 +65,10 @@
   button:hover { border-color: var(--accent); color: var(--accent); }
   input[type=range] { width: 100%; padding: 0; height: 22px; accent-color: var(--accent); }
 
-  .kv { display: flex; justify-content: space-between; gap: 8px; }
-  .kv .k { color: var(--muted); }
-  .kv .v { color: var(--text); font-variant-numeric: tabular-nums; }
+  .kv { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin: 3px 0; }
+  .kv .k { color: var(--muted); text-align: left; white-space: nowrap; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .kv .v { color: var(--text); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; flex: 1 0 auto; }
+  .kv .v.wrap { white-space: normal; text-align: right; }
 
   .legend-row { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
   .swatch { width: 18px; height: 18px; border-radius: 50%; flex: 0 0 18px; }
@@ -77,11 +78,32 @@
   /* svg styling */
   .sphere { fill: var(--ocean); stroke: var(--border); stroke-width: 0.5; }
   .graticule { fill: none; stroke: var(--grid); stroke-width: 0.5; }
-  .country { fill: var(--land); stroke: var(--land-stroke); stroke-width: 0.4; }
+  .country { fill: var(--land); stroke: var(--land-stroke); stroke-width: 0.9; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+  .country-border { fill: none; stroke: #6b7fb0; stroke-width: 0.6; stroke-opacity: 0.7; vector-effect: non-scaling-stroke; pointer-events: none; }
   .quake { cursor: pointer; }
-  .quake-halo { fill: none; pointer-events: none; }
-  .quake-tsu  { fill: none; stroke: #ff4d6d; stroke-width: 1.2; pointer-events: none; }
+  .quake-tsu  { fill: none; stroke: #4d9bff; stroke-width: 1.4; pointer-events: none; }
   .quake-wave { fill: none; stroke: var(--accent); stroke-opacity: 0.55; pointer-events: none; }
+  /* świeże zdarzenia (<1 h): rozchodzący się pierścień + poświata */
+  .quake-fresh {
+    fill: none; stroke: var(--accent); stroke-width: 1.5; pointer-events: none;
+    transform-box: fill-box; transform-origin: center;
+    animation: freshring 1.8s ease-out infinite;
+  }
+  @keyframes freshring {
+    0%   { transform: scale(0.7); opacity: 0.95; }
+    100% { transform: scale(2.6); opacity: 0; }
+  }
+  /* podświetlenie zaznaczonego zdarzenia */
+  .quake-sel {
+    fill: none; stroke: #ffffff; stroke-width: 2.5; pointer-events: none;
+    filter: url(#glow);
+    transform-box: fill-box; transform-origin: center;
+    animation: selpulse 1.4s ease-in-out infinite;
+  }
+  @keyframes selpulse {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.45; }
+  }
 
   #tooltip {
     position: absolute;
@@ -153,24 +175,33 @@
 
   <section id="status" class="panel">
     <div class="kv"><span class="k"><span class="live-dot"></span>Status</span><span class="v" id="status-text">łączenie…</span></div>
-    <div class="kv"><span class="k">Pobrano rekordów</span><span class="v" id="stat-total">—</span></div>
+    <div class="kv"><span class="k">Trzęsienia ziemi</span><span class="v" id="stat-total">—</span></div>
     <div class="kv"><span class="k">Widoczne (po filtrze)</span><span class="v" id="stat-visible">—</span></div>
     <div class="kv"><span class="k">Najsilniejsze (M)</span><span class="v" id="stat-max">—</span></div>
-    <div class="kv"><span class="k">Wygenerowano (UTC)</span><span class="v" id="stat-gen">—</span></div>
+    <div class="kv"><span class="k">Wygenerowano (UTC)</span><span class="v time" id="stat-gen">—</span></div>
     <div class="kv"><span class="k">Następne odświeżenie</span><span class="v" id="stat-next">—</span></div>
   </section>
 
   <section id="legend" class="panel">
-    <h2>Mapowanie cech</h2>
-    <div class="legend-row"><span style="width:18px;text-align:center">●</span> rozmiar = <b style="color:var(--text)">magnituda</b></div>
-    <div class="legend-row"><span>głębokość →</span></div>
+    <h2>Legenda</h2>
+
+    <div class="legend-row" style="margin-bottom:2px"><b style="color:var(--text)">Rozmiar koła = magnituda (M)</b></div>
+    <svg id="size-legend" width="100%" height="62" aria-label="legenda rozmiaru kół"></svg>
+
+    <div class="legend-row" style="margin-top:8px"><b style="color:var(--text)">Kolor = głębokość ogniska (km)</b></div>
     <div id="depth-gradient" class="gradient-bar"></div>
-    <div class="legend-row" style="justify-content:space-between"><span>0 km</span><span>≥ 700 km</span></div>
-    <div class="legend-row"><div class="swatch pulse" style="background:#ffd166;width:10px;height:10px"></div> pulsuje = świeże (&lt;1 h)</div>
-    <div class="legend-row"><div class="swatch" style="background:transparent;border:2px dashed #ffd166;width:14px;height:14px"></div> obrys przerywany = automatic</div>
-    <div class="legend-row"><div class="swatch" style="background:transparent;border:2px solid #ffd166;width:14px;height:14px"></div> obrys ciągły = reviewed</div>
-    <div class="legend-row"><div class="swatch-line" style="background:#ff4d6d"></div> czerwony pierścień = tsunami</div>
-    <div class="legend-row"><span>żółta fala = liczba zgłoszeń odczucia</span></div>
+    <div class="legend-row" style="justify-content:space-between; color:var(--muted)">
+      <span>0</span><span>70</span><span>300</span><span>≥ 700 km</span>
+    </div>
+    <div class="legend-row" style="color:var(--muted); font-size:11px; margin-top:-2px">płytkie (groźniejsze) → głębokie</div>
+
+    <h2>Oznaczenia</h2>
+    <div class="legend-row"><div class="swatch" style="background:transparent;border:2.5px solid #fff;width:14px;height:14px;box-shadow:0 0 6px #fff"></div> biały pierścień = zaznaczone</div>
+    <div class="legend-row"><div class="swatch pulse" style="background:#ffd166;width:10px;height:10px;box-shadow:0 0 6px var(--accent)"></div> poświata + fala = świeże (&lt; 1 h)</div>
+    <div class="legend-row"><div class="swatch" style="background:transparent;border:2px dashed #fff;width:14px;height:14px"></div> obrys przerywany = wstępne (automatic)</div>
+    <div class="legend-row"><div class="swatch" style="background:transparent;border:2px solid #fff;width:14px;height:14px"></div> obrys ciągły = zweryfikowane (reviewed)</div>
+    <div class="legend-row"><div class="swatch" style="background:transparent;border:2px solid #4d9bff;width:14px;height:14px"></div> niebieski pierścień = alert tsunami</div>
+    <div class="legend-row"><div class="swatch" style="background:transparent;border:2px solid rgba(255,209,102,.7);width:14px;height:14px"></div> żółta fala — większa = więcej osób odczuło wstrząs (felt)</div>
   </section>
 
   <section id="details" class="panel">

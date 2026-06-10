@@ -4,7 +4,7 @@ Wersja **robocza** (etap 4.3). Pokazuje zamysł wizualizacji opisanej w `4.1/pla
 
 ## Co robi
 
-Mapa świata w projekcji ortograficznej (D3 + d3-geo) z naniesionymi w czasie zbliżonym do rzeczywistego trzęsieniami ziemi z USGS Earthquake Catalog. Mapa jest obracana przeciągnięciem, przybliżana scrollem. Każdy znacznik mapuje 10 cech zdarzenia na środki wyrazu (rozmiar, kolor, pulsacja, halo, kształt, pierścień, fala, etykieta, obrys), zgodnie z planem.
+Mapa świata w projekcji ortograficznej (D3 + d3-geo) z naniesionymi w czasie zbliżonym do rzeczywistego trzęsieniami ziemi z USGS Earthquake Catalog (pokazujemy wyłącznie zdarzenia typu `earthquake`). Mapa jest obracana przeciągnięciem, przybliżana scrollem. Każdy znacznik mapuje cechy zdarzenia na środki wyrazu: rozmiar = magnituda, kolor = głębokość, przezroczystość/pulsacja + poświata = świeżość, żółta fala = liczba zgłoszeń odczucia (felt), niebieski pierścień = alert tsunami, styl obrysu = status weryfikacji, biały pierścień = zaznaczenie, etykieta = miejsce. Pozostałe pola (np. istotność, współrzędne, czas UTC) widoczne są w panelu szczegółów.
 
 ## Uruchomienie
 
