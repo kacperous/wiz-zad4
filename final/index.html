@@ -61,8 +61,22 @@
     font: inherit;
   }
   select { width: 100%; }
-  button { cursor: pointer; }
-  button:hover { border-color: var(--accent); color: var(--accent); }
+  button {
+    cursor: pointer;
+    background: linear-gradient(180deg, #243154 0%, #18223c 100%);
+    border: 1px solid #33406a;
+    color: var(--text);
+    font-weight: 600;
+    padding: 8px 12px;
+    box-shadow: 0 1px 0 rgba(255,255,255,0.05) inset, 0 2px 6px rgba(0,0,0,0.35);
+    transition: background .15s ease, border-color .15s ease, color .15s ease, transform .05s ease;
+  }
+  button:hover {
+    background: linear-gradient(180deg, #2c3c66 0%, #1d2949 100%);
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  button:active { transform: translateY(1px); }
   input[type=range] { width: 100%; padding: 0; height: 22px; accent-color: var(--accent); }
 
   .kv { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin: 3px 0; }
@@ -175,11 +189,11 @@
 
   <section id="status" class="panel">
     <div class="kv"><span class="k"><span class="live-dot"></span>Status</span><span class="v" id="status-text">łączenie…</span></div>
+    <div class="kv"><span class="k">Następne odświeżenie</span><span class="v" id="stat-next">—</span></div>
     <div class="kv"><span class="k">Trzęsienia ziemi</span><span class="v" id="stat-total">—</span></div>
     <div class="kv"><span class="k">Widoczne (po filtrze)</span><span class="v" id="stat-visible">—</span></div>
     <div class="kv"><span class="k">Najsilniejsze (M)</span><span class="v" id="stat-max">—</span></div>
     <div class="kv"><span class="k">Wygenerowano (UTC)</span><span class="v time" id="stat-gen">—</span></div>
-    <div class="kv"><span class="k">Następne odświeżenie</span><span class="v" id="stat-next">—</span></div>
   </section>
 
   <section id="legend" class="panel">
