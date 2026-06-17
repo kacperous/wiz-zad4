@@ -1,9 +1,18 @@
 /* global d3, topojson */
 // =====================================================================
-// Aktywność sejsmiczna Ziemi — wizualizacja USGS (etap roboczy)
-// D3 v7 + topojson-client. Brak budowania, otwórz index.html w przeglądarce.
+// Aktywnosc sejsmiczna Ziemi - mapa trzesien ziemi z danych USGS.
+//
+// Jak to dziala w skrocie:
+//   1. Pobieramy z internetu liste trzesien ziemi (format GeoJSON).
+//   2. Rysujemy kule ziemska (glob) za pomoca biblioteki D3.
+//   3. Na globie stawiamy kropki - jedna kropka = jedno trzesienie.
+//   4. Co 60 sekund pobieramy dane na nowo (zeby byly aktualne).
+//
+// Nie trzeba niczego budowac - wystarczy otworzyc index.html w przegladarce.
 // =====================================================================
 
+
+// --- Adresy, z ktorych bierzemy dane (USGS udostepnia 4 zakresy czasu) ---
 const FEEDS = {
   hour:  "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_hour.geojson",
   day:   "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson",
@@ -11,49 +20,70 @@ const FEEDS = {
   month: "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_month.geojson",
 };
 
+// Adres z ksztaltami panstw (potrzebny, zeby narysowac kontynenty).
 const WORLD_TOPO = "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json";
 
+// Co ile czasu odswiezamy dane. 60 * 1000 milisekund = 60 sekund.
 const REFRESH_MS = 60 * 1000;
 
-// --- skale -----------------------------------------------------------
-// magnituda (-1..8) -> promień znacznika
+
+// =====================================================================
+// SKALE - czyli "przeliczniki" liczby na rozmiar albo kolor.
+// =====================================================================
+
+// Im wieksza magnituda, tym wieksza kropka (od 1.5 do 22 pikseli).
 const rScale = d3.scaleSqrt().domain([0, 8]).range([1.5, 22]).clamp(true);
-// głębokość (0..700 km) -> kolor.
-// Skala dobrana pod ciemne tło: płytkie = ciepłe/jasne (groźniejsze),
-// głębokie = chłodne. Żaden kolor nie jest czarny → wysoki kontrast.
+
+// Glebokosc trzesienia -> kolor kropki.
+// Plytkie (grozniejsze) = czerwone/pomaranczowe, glebokie = niebieskie.
 const depthScale = d3.scaleLinear()
   .domain([0, 35, 70, 150, 300, 700])
   .range(["#ff5d5d", "#ff8c42", "#ffd166", "#9be15d", "#34d399", "#38bdf8"])
   .clamp(true);
-// felt (liczba zgłoszeń) -> promień fali
+
+// Ile osob odczulo trzesienie -> rozmiar zoltej "fali" wokol kropki.
 const feltScale = d3.scaleSqrt().domain([0, 5000]).range([0, 60]).clamp(true);
 
-// =====================================================================
-// SVG + projekcja
-// =====================================================================
-const svg = d3.select("#map");
-const tooltip = d3.select("#tooltip");
 
+// =====================================================================
+// PRZYGOTOWANIE RYSUNKU (SVG) I GLOBU.
+// =====================================================================
+
+const svg = d3.select("#map");        // plotno, na ktorym rysujemy
+const tooltip = d3.select("#tooltip"); // male okienko z opisem po najechaniu
+
+// "defs" to miejsce na definicje efektow. Robimy tu efekt poswiaty (glow),
+// ktory rozmywa ksztalt i dodaje go z powrotem - tak powstaje swiecenie.
 const defs = svg.append("defs");
-// filtr poświaty (glow) — używany dla świeżych i zaznaczonych zdarzeń
 const glow = defs.append("filter").attr("id", "glow")
   .attr("x", "-80%").attr("y", "-80%").attr("width", "260%").attr("height", "260%");
 glow.append("feGaussianBlur").attr("stdDeviation", 2.5).attr("result", "blur");
 const feMerge = glow.append("feMerge");
 feMerge.append("feMergeNode").attr("in", "blur");
 feMerge.append("feMergeNode").attr("in", "SourceGraphic");
-// gradient legendy głębokości
-const grad = defs.append("linearGradient")
-  .attr("id", "depth-grad").attr("x1", "0%").attr("x2", "100%");
-d3.range(0, 1.0001, 0.05).forEach(t => {
-  grad.append("stop").attr("offset", `${t * 100}%`)
-      .attr("stop-color", depthScale(t * 700));
-});
+
+// Kolorowy pasek legendy glebokosci (zwykle tlo CSS w postaci gradientu).
 document.getElementById("depth-gradient").style.background =
   `linear-gradient(to right, ${d3.range(0, 1.01, 0.05).map(t =>
     `${depthScale(t * 700)} ${t * 100}%`).join(", ")})`;
 
-// legenda rozmiaru: osobne kółka obok siebie (rScale dla wybranych magnitud)
+// projekcja = sposob, w jaki kula 3D jest "splaszczana" na ekran 2D.
+// geoOrthographic wyglada jak globus ogladany z kosmosu.
+const projection = d3.geoOrthographic().precision(0.5).clipAngle(90);
+
+// "path" zamienia ksztalty geograficzne na linie do narysowania.
+const path = d3.geoPath(projection);
+
+// Warstwy rysunku (kolejnosc = co jest pod czym):
+const gSphere    = svg.append("g"); // niebieski ocean (tlo kuli)
+const gGraticule = svg.append("g"); // siatka poludnikow i rownoleznikow
+const gCountries = svg.append("g"); // ladunki / panstwa
+const gQuakes    = svg.append("g").attr("class", "quakes"); // kropki trzesien
+
+
+// =====================================================================
+// LEGENDA ROZMIARU - trzy przykladowe kolka M2, M4, M6 obok siebie.
+// =====================================================================
 function buildSizeLegend() {
   const mags = [2, 4, 6];
   const sel = d3.select("#size-legend");
@@ -61,7 +91,6 @@ function buildSizeLegend() {
   const cy = maxR + 3;
   const labelY = cy + maxR + 13;
   const H = labelY + 4;
-  const gap = 20;
   sel.attr("viewBox", `0 0 250 ${H}`).selectAll("*").remove();
 
   let cx = maxR + 6;
@@ -74,66 +103,45 @@ function buildSizeLegend() {
       .attr("x", cx).attr("y", labelY).attr("text-anchor", "middle")
       .attr("fill", "#c7cef0").attr("font-size", 11)
       .text(`M ${m}`);
+    // przesuwamy sie w prawo, zeby kolejne kolko sie nie nakladalo
     const next = mags[i + 1];
-    if (next != null) cx += r + gap + rScale(next);
+    if (next != null) cx += r + 20 + rScale(next);
   });
 }
 buildSizeLegend();
 
-const projection = d3.geoOrthographic()
-  .precision(0.5)
-  .clipAngle(90);
-
-const path = d3.geoPath(projection);
-
-// warstwy
-const gSphere     = svg.append("g");
-const gGraticule  = svg.append("g");
-const gCountries  = svg.append("g");
-const gQuakes     = svg.append("g").attr("class", "quakes");
 
 // =====================================================================
-// rozmiar / resize
-// =====================================================================
-function resize() {
-  const w = window.innerWidth;
-  const h = window.innerHeight;
-  svg.attr("width", w).attr("height", h).attr("viewBox", `0 0 ${w} ${h}`);
-  const scale = Math.min(w, h) * 0.45;
-  projection.translate([w / 2, h / 2]).scale(scale);
-  redrawBase();
-  redrawQuakes();
-}
-window.addEventListener("resize", resize);
-
-// =====================================================================
-// stan aplikacji
+// STAN APLIKACJI - jedno miejsce, w ktorym trzymamy wszystkie dane.
 // =====================================================================
 const state = {
-  feed: "day",
-  magMin: 0,
-  features: [],
-  generated: null,
-  selectedId: null,
-  countries: null,
-  graticule: d3.geoGraticule10(),
-  sphere: { type: "Sphere" },
-  nextRefreshAt: null,
+  feed: "day",            // wybrany zakres czasu
+  magMin: 0,              // minimalna magnituda z suwaka (filtr)
+  features: [],           // lista trzesien pobrana z USGS
+  generated: null,        // kiedy USGS wygenerowal dane
+  selectedId: null,       // id klikni etego trzesienia (biale podswietlenie)
+  countries: null,        // ksztalty panstw
+  graticule: d3.geoGraticule10(), // siatka na globie
+  sphere: { type: "Sphere" },     // sama kula (ocean)
+  nextRefreshAt: null,    // o ktorej godzinie nastepne odswiezenie
 };
 
+
 // =====================================================================
-// pobieranie danych
+// POBIERANIE DANYCH Z INTERNETU.
 // =====================================================================
+
+// Pobiera ksztalty panstw (robimy to tylko raz na starcie).
 async function loadCountries() {
   const topo = await d3.json(WORLD_TOPO);
   state.countries = topojson.feature(topo, topo.objects.countries);
 }
 
+// Pobiera liste trzesien ziemi dla wybranego zakresu czasu.
 async function loadFeed() {
   setStatus("pobieranie…");
   try {
-    const url = FEEDS[state.feed];
-    const data = await d3.json(url);
+    const data = await d3.json(FEEDS[state.feed]);
     state.features = data.features || [];
     state.generated = data.metadata?.generated ?? Date.now();
     state.nextRefreshAt = Date.now() + REFRESH_MS;
@@ -142,12 +150,13 @@ async function loadFeed() {
     redrawQuakes();
   } catch (err) {
     console.error(err);
-    setStatus("błąd: " + err.message);
+    setStatus("blad: " + err.message);
   }
 }
 
+
 // =====================================================================
-// rendering — tło
+// RYSOWANIE TLA (kula, siatka, panstwa).
 // =====================================================================
 function redrawBase() {
   gSphere.selectAll("path").data([state.sphere])
@@ -160,175 +169,176 @@ function redrawBase() {
   }
 }
 
+
 // =====================================================================
-// rendering — trzęsienia
+// RYSOWANIE TRZESIEN ZIEMI (kropki).
 // =====================================================================
+
+// Sprawdza, czy punkt jest na widocznej stronie globu.
+// (Na globie widac tylko polowe Ziemi - druga polowa jest "z tylu".)
+// d3.geoDistance liczy odleglosc katowa miedzy punktem a srodkiem globu.
+// Jesli jest mniejsza niz 90 stopni (PI/2), to punkt jest z przodu.
 function isVisible(feature) {
-  const [lon, lat] = feature.geometry.coordinates;
-  // ortografia ukrywa drugą półkulę — zasłonięte punkty pomijamy
   const rotate = projection.rotate();
-  const lambda = -rotate[0];
-  const phi    = -rotate[1];
-  const cosC = Math.sin(phi * Math.PI / 180) * Math.sin(lat * Math.PI / 180) +
-               Math.cos(phi * Math.PI / 180) * Math.cos(lat * Math.PI / 180) *
-               Math.cos((lon - lambda) * Math.PI / 180);
-  return cosC >= 0;
+  const center = [-rotate[0], -rotate[1]];
+  return d3.geoDistance(feature.geometry.coordinates, center) < Math.PI / 2;
 }
 
 function redrawQuakes() {
   const now = Date.now();
+
+  // 1. Zostawiamy tylko prawdziwe trzesienia ziemi, ktore przeszly filtr magnitudy.
   const filtered = state.features.filter(f => {
-    const m = f.properties.mag ?? 0;
+    const mag = f.properties.mag ?? 0;
     const isQuake = (f.properties.type || "earthquake") === "earthquake";
-    return isQuake && m >= state.magMin && f.geometry?.coordinates?.length >= 2;
+    const hasCoords = f.geometry?.coordinates?.length >= 2;
+    return isQuake && hasCoords && mag >= state.magMin;
   });
 
   document.getElementById("stat-visible").textContent = filtered.length;
 
-  // sortujemy: najsłabsze pod spodem, najsilniejsze na wierzchu
+  // 2. Sortujemy od najslabszych do najsilniejszych,
+  //    zeby duze trzesienia byly narysowane na wierzchu.
   filtered.sort((a, b) => (a.properties.mag ?? 0) - (b.properties.mag ?? 0));
 
-  const join = gQuakes.selectAll("g.quake-group")
-    .data(filtered, d => d.id);
+  // 3. Laczymy dane z elementami na ekranie (wzorzec "data join" z D3).
+  //    Kazde trzesienie to grupa <g> z kilkoma kolkami w srodku.
+  const groups = gQuakes.selectAll("g.quake-group").data(filtered, d => d.id);
+  groups.exit().remove(); // usun trzesienia, ktorych juz nie ma
 
-  join.exit().remove();
+  // Dla nowych trzesien tworzymy zestaw kolek (od spodu do gory):
+  const enter = groups.enter().append("g").attr("class", "quake-group");
+  enter.append("circle").attr("class", "quake-wave");   // zolta fala (felt)
+  enter.append("circle").attr("class", "quake-fresh");  // pierscien "swiezosci"
+  enter.append("circle").attr("class", "quake-tsu");    // pierscien tsunami
+  enter.append("circle").attr("class", "quake quake-marker"); // glowna kropka
+  enter.append("circle").attr("class", "quake-sel");    // biale zaznaczenie
 
-  const enter = join.enter().append("g").attr("class", "quake-group");
-
-  // 1. fala "felt" (najpierw, pod znacznikiem)
-  enter.append("circle").attr("class", "quake-wave");
-  // 2. pierścień świeżości (<1 h) — rozchodząca się fala
-  enter.append("circle").attr("class", "quake-fresh");
-  // 3. pierścień tsunami
-  enter.append("circle").attr("class", "quake-tsu");
-  // 4. główny znacznik (kółko / kwadrat / trójkąt zależnie od type)
-  enter.append("path").attr("class", "quake quake-marker");
-  // 5. pierścień zaznaczenia (na samym wierzchu)
-  enter.append("circle").attr("class", "quake-sel");
-
-  const all = enter.merge(join);
-
-  all.each(function (d) {
-    const [lon, lat, depth] = d.geometry.coordinates;
-    const visible = isVisible(d);
+  // 4. Dla kazdego trzesienia (nowego i istniejacego) ustawiamy pozycje i wyglad.
+  enter.merge(groups).each(function (d) {
     const node = d3.select(this);
-    node.style("display", visible ? null : "none");
-    if (!visible) return;
 
-    const [x, y] = projection([lon, lat]);
-    const mag    = d.properties.mag ?? 0;
-    const felt   = d.properties.felt ?? 0;
-    const tsu    = d.properties.tsunami === 1;
-    const type   = d.properties.type || "earthquake";
-    const stat   = d.properties.status || "automatic";
-    const ageH   = (now - d.properties.time) / 3.6e6; // wiek w godzinach
-    const fresh  = ageH < 1;
+    // Jesli punkt jest po niewidocznej stronie globu - chowamy cala grupe.
+    if (!isVisible(d)) {
+      node.style("display", "none");
+      return;
+    }
+    node.style("display", null);
+
+    // Wyciagamy potrzebne dane z trzesienia.
+    const [lon, lat, depth] = d.geometry.coordinates;
+    const [x, y] = projection([lon, lat]); // pozycja na ekranie
+    const mag = d.properties.mag ?? 0;
+    const felt = d.properties.felt ?? 0;          // ile osob odczulo
+    const isTsunami = d.properties.tsunami === 1;
+    const isReviewed = (d.properties.status || "automatic") !== "automatic";
+    const ageHours = (now - d.properties.time) / 3.6e6; // wiek w godzinach
+    const isFresh = ageHours < 1;                  // swieze = mlodsze niz 1h
+    const isSelected = d.id === state.selectedId;
+
+    const r = rScale(mag); // promien glownej kropki
+
+    // Im starsze trzesienie, tym bardziej przezroczyste (blednie z czasem).
     const opacity = d3.scaleLinear()
       .domain([0, ageMax(state.feed)])
-      .range([1, 0.18]).clamp(true)(ageH);
+      .range([1, 0.18]).clamp(true)(ageHours);
 
-    const r = rScale(mag);
-    const waveR = r + feltScale(felt);
-
-    // fala felt
+    // Zolta fala - wieksza, gdy wiecej osob odczulo wstrzas.
     node.select(".quake-wave")
       .attr("cx", x).attr("cy", y)
-      .attr("r", waveR)
+      .attr("r", r + feltScale(felt))
       .attr("stroke-width", felt > 0 ? 1 : 0)
       .style("display", felt > 0 ? null : "none");
 
-    // pierścień świeżości (<1 h) — animowana fala wokół znacznika
+    // Pierscien "swiezosci" - animowana fala wokol swiezych trzesien.
     node.select(".quake-fresh")
       .attr("cx", x).attr("cy", y)
       .attr("r", r + 1.5)
-      .style("display", fresh ? null : "none");
+      .style("display", isFresh ? null : "none");
 
-    // tsunami
+    // Pierscien tsunami (niebieski).
     node.select(".quake-tsu")
       .attr("cx", x).attr("cy", y)
       .attr("r", r + 4)
-      .style("display", tsu ? null : "none");
+      .style("display", isTsunami ? null : "none");
 
-    const selected = d.id === state.selectedId;
-
-    // główny marker
-    const marker = node.select(".quake-marker")
-      .attr("d", markerShape(type, r))
-      .attr("transform", `translate(${x},${y})`)
+    // Glowna kropka - kolor wg glebokosci, wielkosc wg magnitudy.
+    node.select(".quake-marker")
+      .attr("cx", x).attr("cy", y)
+      .attr("r", r)
       .attr("fill", depthScale(Math.max(0, depth)))
       .attr("fill-opacity", opacity)
       .attr("stroke", "#ffffff")
-      .attr("stroke-opacity", selected ? 1 : 0.9)
-      .attr("stroke-width", selected ? 1.6 : 1)
-      .attr("filter", fresh ? "url(#glow)" : null)
-      .classed("stroke-dashed", stat === "automatic")
-      .classed("stroke-solid",  stat !== "automatic")
-      .classed("pulse", fresh);
-
-    // pierścień zaznaczenia
-    node.select(".quake-sel")
-      .attr("cx", x).attr("cy", y)
-      .attr("r", r + 6)
-      .style("display", selected ? null : "none");
-
-    if (selected) node.raise();
-
-    // interakcja
-    marker
+      .attr("stroke-opacity", isSelected ? 1 : 0.9)
+      .attr("stroke-width", isSelected ? 1.6 : 1)
+      .attr("filter", isFresh ? "url(#glow)" : null)
+      .classed("stroke-dashed", !isReviewed) // przerywany = dane wstepne
+      .classed("stroke-solid", isReviewed)   // ciagly = dane sprawdzone
+      .classed("pulse", isFresh)
+      // Reakcje na mysz: pokazuj opis i reaguj na klikniecie.
       .on("mouseenter", (e) => showTooltip(e, d))
-      .on("mousemove",  (e) => moveTooltip(e))
+      .on("mousemove", (e) => moveTooltip(e))
       .on("mouseleave", hideTooltip)
-      .on("click",      () => {
+      .on("click", () => {
         state.selectedId = d.id;
         redrawQuakes();
         showDetails(d);
       });
+
+    // Biale podswietlenie klikni etego trzesienia.
+    node.select(".quake-sel")
+      .attr("cx", x).attr("cy", y)
+      .attr("r", r + 6)
+      .style("display", isSelected ? null : "none");
+
+    // Zaznaczone trzesienie przesuwamy na sam wierzch.
+    if (isSelected) node.raise();
   });
 }
 
-function markerShape(type, r) {
-  // Wszystkie zdarzenia rysujemy jako koła. Ujednolicony kształt poprawia
-  // czytelność mapy (bez mieszania kół, kwadratów i trójkątów), a typ
-  // zdarzenia jest pokazany tekstowo w tooltipie i panelu szczegółów.
-  return d3.symbol().type(d3.symbolCircle).size(Math.PI * r * r)();
-}
-
+// Maksymalny wiek (w godzinach) dla danego zakresu - uzywany do blakniecia.
 function ageMax(feed) {
-  // skala starzenia w godzinach
   return ({ hour: 1, day: 24, week: 168, month: 720 })[feed] || 24;
 }
 
+
 // =====================================================================
-// tooltip + panel szczegółów
+// OKIENKO Z OPISEM (tooltip) I PANEL SZCZEGOLOW.
 // =====================================================================
+
+// Male okienko pokazywane po najechaniu na kropke.
 function showTooltip(event, d) {
   const p = d.properties;
   tooltip.html(`
     <div class="t-place">${escapeHtml(p.place || "—")}</div>
     <div class="t-mag">M ${fmtMag(p.mag)}${p.magType ? ` (${escapeHtml(p.magType)})` : ""}</div>
     <div style="color:var(--muted);margin-top:4px">
-      głębokość: ${fmtNum(d.geometry.coordinates[2])} km<br/>
+      glebokosc: ${fmtNum(d.geometry.coordinates[2])} km<br/>
       ${new Date(p.time).toLocaleString("pl-PL")}
     </div>
   `).classed("visible", true);
   moveTooltip(event);
 }
+// Przesuwa okienko za kursorem myszy.
 function moveTooltip(event) {
   tooltip.style("left", event.clientX + "px").style("top", event.clientY + "px");
 }
-function hideTooltip() { tooltip.classed("visible", false); }
+function hideTooltip() {
+  tooltip.classed("visible", false);
+}
 
+// Duzy panel ze szczegolami - pojawia sie po klikni eciu w kropke.
 function showDetails(d) {
   const p = d.properties;
   const [lon, lat, depth] = d.geometry.coordinates;
   d3.select("#details-body").html(`
     <div class="kv"><span class="k">Miejsce</span><span class="v wrap" style="max-width:170px">${escapeHtml(p.place || "—")}</span></div>
     <div class="kv"><span class="k">Magnituda</span><span class="v">M ${fmtMag(p.mag)}${p.magType ? ` <span style="color:var(--muted)">(${escapeHtml(p.magType)})</span>` : ""}</span></div>
-    <div class="kv"><span class="k">Głębokość</span><span class="v">${fmtNum(depth)} km</span></div>
-    <div class="kv"><span class="k">Współrzędne</span><span class="v">${fmtNum(lat)}°, ${fmtNum(lon)}°</span></div>
+    <div class="kv"><span class="k">Glebokosc</span><span class="v">${fmtNum(depth)} km</span></div>
+    <div class="kv"><span class="k">Wspolrzedne</span><span class="v">${fmtNum(lat)}°, ${fmtNum(lon)}°</span></div>
     <div class="kv"><span class="k">Czas (UTC)</span><span class="v time">${new Date(p.time).toISOString().replace("T", " ").slice(0, 19)}</span></div>
-    <div class="kv"><span class="k">Istotność (sig)</span><span class="v">${p.sig ?? "—"}</span></div>
-    <div class="kv"><span class="k">Odczute przez</span><span class="v">${p.felt != null ? p.felt + " osób" : "—"}</span></div>
+    <div class="kv"><span class="k">Istotnosc (sig)</span><span class="v">${p.sig ?? "—"}</span></div>
+    <div class="kv"><span class="k">Odczute przez</span><span class="v">${p.felt != null ? p.felt + " osob" : "—"}</span></div>
     <div class="kv"><span class="k">Tsunami</span><span class="v">${p.tsunami ? "tak" : "nie"}</span></div>
     <div class="kv"><span class="k">Status</span><span class="v">${escapeHtml(p.status || "—")}</span></div>
     <div class="kv"><span class="k">Typ</span><span class="v">${escapeHtml(type2pl(p.type))}</span></div>
@@ -336,19 +346,27 @@ function showDetails(d) {
   `);
 }
 
+
 // =====================================================================
-// status / statystyki
+// STATUS I STATYSTYKI (prawy gorny panel).
 // =====================================================================
-function setStatus(text) { document.getElementById("status-text").textContent = text; }
+function setStatus(text) {
+  document.getElementById("status-text").textContent = text;
+}
+
 function updateStats() {
   const quakes = state.features.filter(f => (f.properties.type || "earthquake") === "earthquake");
   document.getElementById("stat-total").textContent = quakes.length;
+
   const max = d3.max(quakes, f => f.properties.mag) ?? null;
   document.getElementById("stat-max").textContent = max != null ? fmtMag(max) : "—";
+
   document.getElementById("stat-gen").textContent = state.generated
     ? new Date(state.generated).toISOString().slice(11, 19)
     : "—";
 }
+
+// Co sekunde liczy, ile zostalo do nastepnego odswiezenia.
 function tickCountdown() {
   if (!state.nextRefreshAt) return;
   const remaining = Math.max(0, Math.round((state.nextRefreshAt - Date.now()) / 1000));
@@ -356,26 +374,37 @@ function tickCountdown() {
 }
 setInterval(tickCountdown, 1000);
 
+
 // =====================================================================
-// interakcja: obrót przeciągnięciem + zoom scrollem
+// OBRACANIE GLOBU MYSZA + PRZYBLIZANIE SCROLLEM.
 // =====================================================================
 function attachInteraction() {
-  let v0, r0, q0;
+  // Czulosc obracania: o ile stopni obrocic glob na 1 piksel ruchu myszy.
+  const sensitivity = 0.25;
+  let lastX, lastY;
 
+  // Przeciaganie mysza = obracanie globu.
   const drag = d3.drag()
     .on("start", (event) => {
-      v0 = versor.cartesian(projection.invert([event.x, event.y]));
-      r0 = projection.rotate();
-      q0 = versor(r0);
+      lastX = event.x;
+      lastY = event.y;
     })
     .on("drag", (event) => {
-      const v1 = versor.cartesian(projection.rotate(r0).invert([event.x, event.y]));
-      const q1 = versor.multiply(q0, versor.delta(v0, v1));
-      projection.rotate(versor.rotation(q1));
+      const rotate = projection.rotate(); // [obrot poziomy, obrot pionowy]
+      const dx = event.x - lastX;
+      const dy = event.y - lastY;
+      // ruch w poziomie obraca w lewo/prawo, w pionie w gore/dol.
+      projection.rotate([
+        rotate[0] + dx * sensitivity,
+        rotate[1] - dy * sensitivity,
+      ]);
+      lastX = event.x;
+      lastY = event.y;
       redrawBase();
       redrawQuakes();
     });
 
+  // Scroll = przyblizanie / oddalanie (zmiana skali projekcji).
   const zoom = d3.zoom()
     .scaleExtent([0.5, 8])
     .on("zoom", (event) => {
@@ -388,14 +417,18 @@ function attachInteraction() {
   svg.call(drag).call(zoom);
 }
 
+
 // =====================================================================
-// kontrolki
+// PRZYCISKI I KONTROLKI (lewy panel).
 // =====================================================================
 function attachControls() {
+  // Lista wyboru zakresu czasu.
   document.getElementById("feed").addEventListener("change", (e) => {
     state.feed = e.target.value;
     loadFeed();
   });
+
+  // Suwak minimalnej magnitudy.
   const magInput = document.getElementById("mag");
   const magLabel = document.getElementById("mag-label");
   magInput.addEventListener("input", (e) => {
@@ -403,7 +436,11 @@ function attachControls() {
     magLabel.textContent = "≥ " + state.magMin.toFixed(1);
     redrawQuakes();
   });
+
+  // Przycisk "Odswiez teraz".
   document.getElementById("refresh").addEventListener("click", loadFeed);
+
+  // Przycisk "Wysrodkuj" - przywraca domyslny widok globu.
   document.getElementById("reset").addEventListener("click", () => {
     projection.rotate([0, -10]);
     redrawBase();
@@ -411,92 +448,63 @@ function attachControls() {
   });
 }
 
+
 // =====================================================================
-// utils
+// DROBNE FUNKCJE POMOCNICZE.
 // =====================================================================
+
+// Magnituda jako tekst z jednym miejscem po przecinku (albo "—").
 const fmtMag = (v) => v == null ? "—" : (+v).toFixed(1);
+
+// Liczba z dwoma miejscami po przecinku (albo "—").
 const fmtNum = (v) => v == null || isNaN(v) ? "—" : (+v).toFixed(2);
+
+// Zamienia niebezpieczne znaki na bezpieczne (zeby tekst z USGS nie zepsul HTML).
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
   }[c]));
 }
+
+// Tlumaczy typ zdarzenia z angielskiego na polski.
 function type2pl(t) {
   const map = {
-    "earthquake": "trzęsienie ziemi",
-    "quarry blast": "wybuch w kamieniołomie",
+    "earthquake": "trzesienie ziemi",
+    "quarry blast": "wybuch w kamieniolomie",
     "explosion": "eksplozja",
-    "ice quake": "trzęsienie lodu",
-    "mining explosion": "eksplozja górnicza",
-    "rock burst": "tąpnięcie",
+    "ice quake": "trzesienie lodu",
+    "mining explosion": "eksplozja gornicza",
+    "rock burst": "tapniecie",
     "nuclear explosion": "eksplozja nuklearna",
   };
   return map[t] || t || "—";
 }
 
-// =====================================================================
-// versor — minimalna implementacja kwaternionów do obrotu projekcji
-// (na potrzeby drag; bez dodatkowej zależności)
-// =====================================================================
-const versor = (function () {
-  const radians = Math.PI / 180, degrees = 180 / Math.PI;
-  function versor(e) {
-    const l = e[0] / 2 * radians, sl = Math.sin(l), cl = Math.cos(l),
-          p = e[1] / 2 * radians, sp = Math.sin(p), cp = Math.cos(p),
-          g = e[2] / 2 * radians, sg = Math.sin(g), cg = Math.cos(g);
-    return [
-      cl * cp * cg + sl * sp * sg,
-      sl * cp * cg - cl * sp * sg,
-      cl * sp * cg + sl * cp * sg,
-      cl * cp * sg - sl * sp * cg,
-    ];
-  }
-  versor.cartesian = function (e) {
-    const l = e[0] * radians, p = e[1] * radians, cp = Math.cos(p);
-    return [cp * Math.cos(l), cp * Math.sin(l), Math.sin(p)];
-  };
-  versor.rotation = function (q) {
-    return [
-      Math.atan2(2 * (q[0] * q[1] + q[2] * q[3]), 1 - 2 * (q[1] * q[1] + q[2] * q[2])) * degrees,
-      Math.asin(Math.max(-1, Math.min(1, 2 * (q[0] * q[2] - q[3] * q[1])))) * degrees,
-      Math.atan2(2 * (q[0] * q[3] + q[1] * q[2]), 1 - 2 * (q[2] * q[2] + q[3] * q[3])) * degrees,
-    ];
-  };
-  versor.delta = function (v0, v1, alpha = 1) {
-    const w = cross(v0, v1), l = Math.sqrt(dot(w, w));
-    if (!l) return [1, 0, 0, 0];
-    const t = alpha * Math.acos(Math.max(-1, Math.min(1, dot(v0, v1)))) / 2,
-          s = Math.sin(t);
-    return [Math.cos(t), w[2] / l * s, -w[1] / l * s, w[0] / l * s];
-  };
-  versor.multiply = function (q1, q2) {
-    return [
-      q1[0]*q2[0] - q1[1]*q2[1] - q1[2]*q2[2] - q1[3]*q2[3],
-      q1[0]*q2[1] + q1[1]*q2[0] + q1[2]*q2[3] - q1[3]*q2[2],
-      q1[0]*q2[2] - q1[1]*q2[3] + q1[2]*q2[0] + q1[3]*q2[1],
-      q1[0]*q2[3] + q1[1]*q2[2] - q1[2]*q2[1] + q1[3]*q2[0],
-    ];
-  };
-  function cross(a, b) {
-    return [a[1]*b[2] - a[2]*b[1], a[2]*b[0] - a[0]*b[2], a[0]*b[1] - a[1]*b[0]];
-  }
-  function dot(a, b) {
-    return a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
-  }
-  return versor;
-})();
 
 // =====================================================================
-// start
+// DOSTOSOWANIE DO ROZMIARU OKNA.
+// =====================================================================
+function resize() {
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  svg.attr("width", w).attr("height", h).attr("viewBox", `0 0 ${w} ${h}`);
+  projection.translate([w / 2, h / 2]).scale(Math.min(w, h) * 0.45);
+  redrawBase();
+  redrawQuakes();
+}
+window.addEventListener("resize", resize);
+
+
+// =====================================================================
+// START - to uruchamia sie raz, gdy strona sie zaladuje.
 // =====================================================================
 (async function init() {
-  attachControls();
-  attachInteraction();
-  resize();
-  projection.rotate([0, -10]);
-  await loadCountries();
-  redrawBase();
-  await loadFeed();
-  // auto-odświeżanie
-  setInterval(loadFeed, REFRESH_MS);
+  attachControls();      // podlacz przyciski i suwak
+  attachInteraction();   // wlacz obracanie i przyblizanie
+  resize();              // dopasuj rozmiar do okna
+  projection.rotate([0, -10]); // ustaw poczatkowy widok globu
+  await loadCountries(); // pobierz ksztalty panstw
+  redrawBase();          // narysuj glob
+  await loadFeed();      // pobierz i narysuj trzesienia
+  setInterval(loadFeed, REFRESH_MS); // odswiezaj co 60 sekund
 })();
